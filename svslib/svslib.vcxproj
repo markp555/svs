@@ -148,9 +148,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
+    <ClInclude Include="httplib.h" />
+    <ClInclude Include="sqlite3.h" />
+    <ClInclude Include="SqliteDB.h" />
     <ClInclude Include="svslib.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="sqlite3.c" />
+    <ClCompile Include="SqliteDB.cpp" />
     <ClCompile Include="svslib.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
