@@ -42,6 +42,7 @@
 #include <map>
 #include <stdexcept>
 #include "sqlite3.h"
+#include <minwindef.h>
 
 typedef std::map<std::string, int> StrIntMap;
 
