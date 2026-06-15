@@ -54,13 +54,16 @@ std::string SVSRepository::create(XPATH dir)
     std::random_device rd{};
     fs::create_directories(dir);
     std::string name = "MAIN.DB";
-    while (!fs::exists(name))
+    while (!fs::exists(dir / name))
     {
         name.clear();
         name = "REPO-";
         name += std::to_string(rd());
+        name += ".DB";
     }
-    
+    auto dbpath = dir / name;
+    rootdb.Open(dbpath.c_str());
+    apply_migrations();
     return name;
 }
 
