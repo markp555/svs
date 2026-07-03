@@ -18,12 +18,22 @@
 //  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.              //
 //                                                                         //
 /////////////////////////////////////////////////////////////////////////////
-// svslib.cpp : Defines the functions for the static library.
-//
-
+#pragma once
 #include "framework.h"
-#include "svslib.h"
+// File subsystem
+// MAIN.DAT file API
+namespace svs
+{
+	union filehash
+	{
+		char raw[32];
+		unsigned int val[8];
+	};
 
-namespace fs = std::filesystem;
+	
 
-
+	filehash calc_hash_blake3(LPCWSTR filepath);
+	LONGLONG update_file(LPCWSTR filepath, HANDLE data, LONGLONG old, int flags);
+	void extract_file(HANDLE outfile, HANDLE data, LONGLONG position, int flags);
+	LPWSTR make_human_diff(HANDLE data, LONGLONG file1, LONGLONG file2, int flags);
+}

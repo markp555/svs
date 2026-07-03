@@ -155,16 +155,28 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="blake3.h" />
+    <ClInclude Include="blake3_impl.h" />
+    <ClInclude Include="filesubsystem.h" />
     <ClInclude Include="framework.h" />
-    <ClInclude Include="httplib.h" />
+    <ClInclude Include="maindb.h" />
     <ClInclude Include="sqlite3.h" />
-    <ClInclude Include="SqliteDB.h" />
+    <ClInclude Include="stream_helper.h" />
     <ClInclude Include="svslib.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="blake3.c" />
+    <ClCompile Include="blake3_dispatch.c" />
+    <ClCompile Include="blake3_neon.c" />
+    <ClCompile Include="blake3_portable.c" />
     <ClCompile Include="sqlite3.c" />
-    <ClCompile Include="SqliteDB.cpp" />
     <ClCompile Include="svslib.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="blake3_avx2_x86-64_windows_msvc.asm" />
+    <None Include="blake3_avx512_x86-64_windows_msvc.asm" />
+    <None Include="blake3_sse2_x86-64_windows_msvc.asm" />
+    <None Include="blake3_sse41_x86-64_windows_msvc.asm" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
