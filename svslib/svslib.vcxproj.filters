@@ -59,6 +59,9 @@
     <ClCompile Include="blake3_portable.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="filesubsystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="blake3_avx2_x86-64_windows_msvc.asm">

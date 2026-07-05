@@ -187,6 +187,32 @@ namespace svs
 		}
 	};
 
+	struct db_transaction
+	{
+		db_handle dbh;
+		bool ok;
+		db_transaction(const db_transaction&) = delete;
+		db_transaction& operator=(const db_transaction&) = delete;
+		db_transaction(db_handle dbh) :dbh(dbh), ok(false)
+		{
+			dbh->exec("BEGIN TRANSACTION;");
+		}
+		~db_transaction() noexcept
+		{
+			if (!ok)
+			{
+				dbh->exec("ROLLBACK;");
+			}
+		}
+		void commit()
+		{
+			if (ok)
+				throw std::runtime_error("[SQL] commiting transaction more than once!");
+			dbh->exec("COMMIT;");
+			ok = true;
+		}
+	};
+
 	void a()
 	{
 		db_query dq(nullptr, "SELECT * FROM master;");

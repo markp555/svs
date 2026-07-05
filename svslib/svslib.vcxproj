@@ -169,6 +169,7 @@
     <ClCompile Include="blake3_dispatch.c" />
     <ClCompile Include="blake3_neon.c" />
     <ClCompile Include="blake3_portable.c" />
+    <ClCompile Include="filesubsystem.cpp" />
     <ClCompile Include="sqlite3.c" />
     <ClCompile Include="svslib.cpp" />
   </ItemGroup>
