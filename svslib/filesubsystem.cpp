@@ -58,19 +58,29 @@ namespace svs
 			long long ssz = dbq.get<long long>("source_size") + sz;
 			std::random_device rd;
 			std::normal_distribution<double> limit(MAX_DELTAS_ONE_FILE, 100.0);
-			std::exponential_distribution<double> opercost(8.0);
-			std::exponential_distribution<double> cpucost(36.0);
+			std::normal_distribution<double> opercost(8.0);
+			std::normal_distribution<double> cpucost(36.0);
 			long long delta_limit = std::max(100ll, llround(limit(rd)));
+			// how much data need to be processed to get target file
+			// opercost equal to cost of zlib usage
 			long long procsize = std::max(0ll, llround(sz * opercost(rd))) + ssz + filesize;
 			double efficiency = (double)filesize / (double)procsize;
-			long long cpuwork = std::max(0ll, llround(cnt * cpucost(rd) + sz * opercost(rd))) + filesize;
+			// Bigger file -> bigger amount of deltas allowed
+			long long cpuwork = std::max(0ll, llround(cnt * cpucost(rd))) + filesize;
 			double cpuscore = (double)filesize / (double)cpuwork;
+			// if file big (1GB) it is better to have many deltas
+			// if file small (3KB) it is better to have few deltas
+			// almost same as cpuscore, but attached to delta limit
 			double deltascore = pow(std::min(1.0, log(10.0) / log(std::max(1.0, (double)(cnt - delta_limit)))), log((double)filesize) / log(9.0));
-			std::bernoulli_distribution prob(deltascore * sqrt(cpuscore) * std::min(1.0, 4.0 * efficiency));
+			// file x10 from scource -> delta will pure work -> save full
+			double highscore = std::min(1.0, pow(0.5, ((double)filesize / (double)ssz - 1) / 5.0));
+			std::bernoulli_distribution prob(deltascore * highscore * sqrt(cpuscore) * std::min(1.0, cpuscore * sqrt(3.0 * efficiency)));
 			raw_file = prob(rd);
 			files_delta_cnt = cnt;
 			files_delta_size = sz;
 			files_source_size = ssz - sz;
+			if (need_restart())
+				raw_file = true;
 			if (!raw_file)
 			{
 				// read signature
@@ -115,6 +125,7 @@ namespace svs
 						auto& values = i.second;
 						std::sort(values.begin(), values.end());
 					}
+					dbuf.reserve(DELTA_BUFFER_SIZE);
 					dbuffer.init(blocksize);
 					dhashes.init(blocksize);
 					chash = 0;
@@ -129,7 +140,11 @@ namespace svs
 		memset(&zs, 0, sizeof(zs));
 		if (use_zlib)
 		{
+			zs.zalloc = Z_NULL;
+			zs.zfree = Z_NULL;
+			zs.opaque = Z_NULL;
 			deflateInit(&zs, Z_BEST_COMPRESSION);
+			zsbuf = std::make_unique<char[]>(ZSTREAM_BUFFER_SIZE);
 		}
 		blake3_hasher_init(&file_hash);
 		char header[16];
@@ -158,6 +173,26 @@ namespace svs
 				throw winerror();
 			if (!SetEndOfFile(hdata))
 				throw winerror();
+		}
+	}
+	void filesave::_process(const char* buf, int bufsz)
+	{
+		DWORD readen, writen;
+		if (use_zlib)
+		{
+			zs.avail_in = bufsz;
+			zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(buf));
+			zs.next_out = reinterpret_cast<Bytef*>(zsbuf.get());
+			zs.avail_out = ZSTREAM_BUFFER_SIZE;
+		}
+		else
+		{
+			if (bufsz == 0)
+				return;
+			if (!WriteFile(hfile, buf, bufsz, &writen, NULL))
+				throw winerror();
+			if (writen != bufsz)
+				throw ioerror(hfile, "error writing file data; check free space on disk");
 		}
 	}
 	void filesave::process(const char* buf, int bufsz)
@@ -196,6 +231,21 @@ namespace svs
 				}
 			}
 		}
+		// update file
+		if (raw_file)
+		{
+			_process(buf, bufsz);
+		}
+		else
+		{
+
+		}
+		// check eof
+		bytespassed += bufsz;
+		if (bytespassed > filesize)
+			throw std::runtime_error("Too much bytes recieved than file size");
+		if (bytespassed == filesize)
+			_process(buf, 0);
 	}
 	inline void filesave::restart()
 	{
@@ -204,12 +254,40 @@ namespace svs
 		raw_file = true;
 		unwind = true;
 		if (use_zlib)
+		{
+			deflateEnd(&zs);
 			deflateInit(&zs, Z_BEST_COMPRESSION);
+		}
+		bytespassed = 0;
+		LARGE_INTEGER i1, i2;
+		i1.LowPart = olsign.Offset;
+		i1.HighPart = olsign.OffsetHigh;
+		if (!SetFilePointerEx(hfile, i1, &i2, FILE_BEGIN))
+			throw winerror();
+		if (!SetEndOfFile(hfile))
+			throw winerror();
 	}
 	long long filesave::commit()
 	{
-		FlushFileBuffers(hfile);
+		if (bytespassed < filesize)
+			throw std::runtime_error("Not enough bytes recieved to file size");
 		SetEndOfFile(hfile);
+		if (use_zlib)
+			deflateEnd(&zs);
+		LARGE_INTEGER i1, i2;
+		i1.QuadPart = 0;
+		SetFilePointerEx(hfile, i1, &i2, FILE_CURRENT);
+		i1.QuadPart = postition;
+		SetFilePointerEx(hfile, i1, &i2, FILE_BEGIN);
+		char header[8];
+		DWORD writen;
+		if (!WriteFile(hfile, header, 8, &writen, NULL))
+			throw winerror();
+		FlushFileBuffers(hfile);
+		// main work finished!
+		filehash filehsh;
+		blake3_hasher_finalize(&file_hash, reinterpret_cast<uint8_t*>(&filehsh), sizeof(filehsh));
+		db_query dbq1(dbh,"INSERT INTO objects(offset, size, hash, type) VALUES")
 		dbt.commit();
 		return postition;
 	}

@@ -138,7 +138,7 @@ namespace svs
 		ring_buffer <unsigned> dhashes;
 		unsigned chash = 0;
 		unsigned shash = 0;
-		size_t bytespassed = 0;
+		long long bytespassed = 0;
 		int buffer_lst = 0;
 		bool raw_file = true, finished = false, no_signature = true, use_zlib = false;
 		z_stream zs;
@@ -147,11 +147,15 @@ namespace svs
 		blake3_hasher file_hash;
 		bool unwind = false;
 		OVERLAPPED olsign;
+		std::unique_ptr<char[]> zsbuf;
+		std::vector<char> dbuf;
 
 		constexpr static inline unsigned K = 239;
 		constexpr static inline unsigned THRESHOLD_ZLIB = 220;
 		constexpr static inline unsigned THRESHOLD_DELTA = 90 * 90 / 11;
 		constexpr static inline unsigned MAX_DELTAS_ONE_FILE = 500;
+		constexpr static inline unsigned ZSTREAM_BUFFER_SIZE = 65524;
+		constexpr static inline unsigned DELTA_BUFFER_SIZE = 1024 * 1024;
 
 		/// <summary>
 		/// Initialize streaming processor
@@ -163,6 +167,9 @@ namespace svs
 		/// <param name="filesize">New file size. Required</param>
 		/// <param name="prev">Previous file offset. NULL if it is new file</param>
 		filesave(HANDLE hdata, db_handle dbh, long long filesize, long long prev);
+
+		// internal function. writes directly to MAIN.DAT
+		void _process(const char* buf, int bufsz);
 
 		void process(const char* buf, int bufsz);
 
