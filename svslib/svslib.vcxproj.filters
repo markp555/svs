@@ -53,9 +53,6 @@
     <ClCompile Include="blake3_dispatch.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="blake3_neon.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="blake3_portable.c">
       <Filter>Source Files</Filter>
     </ClCompile>

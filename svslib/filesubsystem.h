@@ -50,7 +50,7 @@ namespace svs
 		unsigned int val[8];
 	};
 
-	bool operator<(const filehash& a, const filehash& b)
+	inline bool operator<(const filehash& a, const filehash& b)
 	{
 		return memcmp(a.raw, b.raw, sizeof(a.raw)) < 0;
 	}
@@ -98,12 +98,16 @@ namespace svs
 			buffer[ptr] = oth;
 			if (++ptr == bufsz)
 				ptr = 0;
+			return old;
 		}
 		void init(size_t sz)
 		{
-			delete buffer;
-			buffer = new T[sz];
-			bufsz = sz;
+			if (bufsz != sz)
+			{
+				delete buffer;
+				buffer = new T[sz];
+				bufsz = sz;
+			}
 			ptr = 0;
 		}
 		inline bool full() { return ptr == 0; }

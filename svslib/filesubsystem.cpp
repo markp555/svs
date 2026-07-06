@@ -79,8 +79,6 @@ namespace svs
 			files_delta_cnt = cnt;
 			files_delta_size = sz;
 			files_source_size = ssz - sz;
-			if (need_restart())
-				raw_file = true;
 			if (!raw_file)
 			{
 				// read signature
@@ -120,9 +118,9 @@ namespace svs
 						signature[ph].emplace_back(fh, i);
 					}
 					delete[] signaturestore;
-					for (auto& i : signature)
+					for (auto it = signature.begin(); it != signature.end(); it++)
 					{
-						auto& values = i.second;
+						auto& values = it.value();
 						std::sort(values.begin(), values.end());
 					}
 					dbuf.reserve(DELTA_BUFFER_SIZE);
@@ -217,7 +215,7 @@ namespace svs
 						memcpy(sigentry, &shash, 4);
 						blake3_hasher sighash;
 						blake3_hasher_init(&sighash);
-						sigbuf.serialize([&](char* buf, int len)
+						sigbuf.serialize([&](char* buf, size_t len)
 						{
 							blake3_hasher_update(&sighash, buf, len);
 						});
@@ -287,7 +285,7 @@ namespace svs
 		// main work finished!
 		filehash filehsh;
 		blake3_hasher_finalize(&file_hash, reinterpret_cast<uint8_t*>(&filehsh), sizeof(filehsh));
-		db_query dbq1(dbh,"INSERT INTO objects(offset, size, hash, type) VALUES")
+		db_query dbq1(dbh, "INSERT INTO objects(offset, size, hash, type) VALUES");
 		dbt.commit();
 		return postition;
 	}

@@ -125,14 +125,14 @@ namespace svs
 		void bind(const char* param, std::string_view sw)
 		{
 			int id = sqlite3_bind_parameter_index(stmt, param);
-			if (int ok = sqlite3_bind_text(stmt, id, sw.data(), sw.size(), SQLITE_TRANSIENT))
+			if (int ok = sqlite3_bind_text(stmt, id, sw.data(), static_cast<int>(sw.size()), SQLITE_TRANSIENT))
 				throw sql_error(db, ok);
 		}
 
 		void bind(const char* param, std::wstring_view sw)
 		{
 			int id = sqlite3_bind_parameter_index(stmt, param);
-			if (int ok = sqlite3_bind_text16(stmt, id, sw.data(), sw.size(), SQLITE_TRANSIENT))
+			if (int ok = sqlite3_bind_text16(stmt, id, sw.data(), static_cast<int>(sw.size()), SQLITE_TRANSIENT))
 				throw sql_error(db, ok);
 		}
 
@@ -212,14 +212,4 @@ namespace svs
 			ok = true;
 		}
 	};
-
-	void a()
-	{
-		db_query dq(nullptr, "SELECT * FROM master;");
-		dq.bind("abc", L"abcd");
-		dq.bind("abd", nullptr);
-		dq.step();
-		dq.get<int>("alpha");
-		dq.get<std::string>("gamma");
-	}
 }
