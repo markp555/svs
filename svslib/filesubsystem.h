@@ -55,6 +55,11 @@ namespace svs
 		return memcmp(a.raw, b.raw, sizeof(a.raw)) < 0;
 	}
 
+	inline bool operator==(const filehash& a, const filehash& b)
+	{
+		return memcmp(a.raw, b.raw, sizeof(a.raw)) == 0;
+	}
+
 	// small replacement for std::pair allowing Value be non-sortable
 	template <typename Key, typename Value>
 	struct keyvalue
@@ -140,6 +145,8 @@ namespace svs
 		// std::deque <keyvalue <char, unsigned>> dq;
 		ring_buffer <char> dbuffer, sigbuf;
 		ring_buffer <unsigned> dhashes;
+		unsigned dhashmul = 0, dprevcmd = 0;
+		int dcurbytes = 0;
 		unsigned chash = 0;
 		unsigned shash = 0;
 		long long bytespassed = 0;
@@ -174,6 +181,12 @@ namespace svs
 
 		// internal function. writes directly to MAIN.DAT
 		void _process(const char* buf, int bufsz);
+
+		inline void _send_delta_command(int cmd);
+
+		void _flush_delta_buffer();
+		void _push_delta_buffer(char ch);
+		void _find_delta_hash(unsigned hsh);
 
 		void process(const char* buf, int bufsz);
 

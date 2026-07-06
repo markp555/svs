@@ -127,6 +127,9 @@ namespace svs
 					dbuffer.init(blocksize);
 					dhashes.init(blocksize);
 					chash = 0;
+					dhashmul = 1;
+					for (int i = blocksize; i > 0; i--)
+						dhashmul *= K;
 				}
 			}
 		}
@@ -180,8 +183,23 @@ namespace svs
 		{
 			zs.avail_in = bufsz;
 			zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(buf));
-			zs.next_out = reinterpret_cast<Bytef*>(zsbuf.get());
-			zs.avail_out = ZSTREAM_BUFFER_SIZE;
+			int flush = (bufsz > 0 ? Z_NO_FLUSH : Z_FINISH), ret;
+			do
+			{
+				zs.avail_out = ZSTREAM_BUFFER_SIZE;
+				zs.next_out = reinterpret_cast<Bytef*>(zsbuf.get());
+				ret = deflate(&zs, flush);
+				if (ret == Z_STREAM_ERROR)
+					throw std::runtime_error("zlib compression error");
+				int have = ZSTREAM_BUFFER_SIZE - zs.avail_out;
+				if (have > 0)
+				{
+					if (!WriteFile(hfile, zsbuf.get(), have, &writen, NULL))
+						throw winerror();
+					if (writen != have)
+						throw ioerror(hfile, "error writing compressed file data; check free space on disk");
+				}
+			} while (zs.avail_out == 0);
 		}
 		else
 		{
@@ -191,6 +209,58 @@ namespace svs
 				throw winerror();
 			if (writen != bufsz)
 				throw ioerror(hfile, "error writing file data; check free space on disk");
+		}
+	}
+	inline void filesave::_send_delta_command(int cmd)
+	{
+		if (use_zlib)
+		{
+			unsigned ucmd = (unsigned)cmd;
+			unsigned xcmd = ucmd - dprevcmd;
+			dprevcmd = ucmd;
+			_process(reinterpret_cast<char*>(&xcmd), sizeof(xcmd));
+		}
+		else
+		{
+			_process(reinterpret_cast<char*>(&cmd), sizeof(cmd));
+		}
+	}
+	void filesave::_flush_delta_buffer()
+	{
+		if (!dbuf.empty())
+		{
+			int cmd = -(int)dbuf.size();
+			_send_delta_command(cmd);
+			_process(dbuf.data(), (int)dbuf.size());
+			dbuf.clear();
+		}
+	}
+	void filesave::_push_delta_buffer(char ch)
+	{
+		if (dbuf.size() == DELTA_BUFFER_SIZE)
+			_flush_delta_buffer();
+		dbuf.push_back(ch);
+	}
+	void filesave::_find_delta_hash(unsigned hsh)
+	{
+		auto it = signature.find(chash);
+		if (it != signature.end())
+		{
+			blake3_hasher bh;
+			blake3_hasher_init(&bh);
+			dbuffer.serialize([&bh](const char* s, size_t len)
+			{
+				blake3_hasher_update(&bh, s, len);
+			});
+			filehash fh;
+			blake3_hasher_finalize(&bh, reinterpret_cast<uint8_t*>(&fh), sizeof(fh));
+			const std::vector<keyvalue<filehash, int>>& vars = it.value();
+			auto it2 = std::lower_bound(vars.begin(), vars.end(), keyvalue<filehash, int>{fh, 0});
+			if (it2 != vars.end() && it2->key == fh)
+			{
+				_send_delta_command(it2->value);
+				dcurbytes = 0, chash = 0;
+			}
 		}
 	}
 	void filesave::process(const char* buf, int bufsz)
@@ -236,14 +306,45 @@ namespace svs
 		}
 		else
 		{
-
+			for (int i = 0; i < bufsz; i++)
+			{
+				char ch = buf[i];
+				chash *= K;
+				chash += (unsigned char)ch;
+				if (dcurbytes < blocksize)
+				{
+					dhashes.push(chash);
+					dbuffer.push(ch);
+					if (++dcurbytes == blocksize)
+					{
+						_find_delta_hash(chash);
+					}
+					continue;
+				}
+				unsigned phsh = dhashes.push(chash);
+				unsigned hsh = chash - phsh * dhashmul;
+				_push_delta_buffer(dbuffer.push(ch));
+				_find_delta_hash(hsh);
+			}
 		}
 		// check eof
 		bytespassed += bufsz;
 		if (bytespassed > filesize)
 			throw std::runtime_error("Too much bytes recieved than file size");
 		if (bytespassed == filesize)
+		{
+			if (!raw_file)
+			{
+				dbuffer.serialize([&](const char* x, size_t len)
+				{
+					int have = std::min(dcurbytes, (int)len);
+					dbuf.insert(dbuf.end(), x, x + have);
+					dcurbytes -= have;
+				});
+				_flush_delta_buffer();
+			}
 			_process(buf, 0);
+		}
 	}
 	inline void filesave::restart()
 	{
