@@ -93,7 +93,13 @@ namespace svs
 			double deltascore = pow(std::min(1.0, log(10.0) / log(std::max(1.0, (double)(cnt - delta_limit)))), log((double)filesize) / log(9.0));
 			// file x10 from scource -> delta will pure work -> save full
 			double highscore = std::min(1.0, pow(0.5, ((double)filesize / (double)ssz - 1) / 5.0));
-			std::bernoulli_distribution prob(deltascore * highscore * sqrt(cpuscore) * std::min(1.0, cpuscore * sqrt(3.0 * efficiency)));
+			std::bernoulli_distribution prob(std::min(1.0, 
+				deltascore * 
+				highscore * 
+				sqrt(cpuscore) * 
+				std::min(1.0, cpuscore * sqrt(3.0 * efficiency)) *
+				config.run_one_inline<double>("delta_prob")
+			));
 			raw_file = !prob(rd);
 			files_delta_cnt = cnt;
 			files_delta_size = sz;
