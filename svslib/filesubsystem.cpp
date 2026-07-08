@@ -32,7 +32,7 @@ namespace svs
 	/// <param name="filesize">New file size. Required</param>
 	/// <param name="prev">Previous file offset. NULL if it is new file</param>
 
-	inline filesave::filesave(HANDLE hdata, db_handle dbh, long long filesize, long long prev) : hfile(hdata), filesize(filesize), lck(dbh->lck), parent(prev), dbt(dbh)
+	filesave::filesave(HANDLE hdata, db_handle dbh, long long filesize, long long prev) : hfile(hdata), filesize(filesize), lck(dbh->lck), parent(prev), dbt(dbh), dbh(dbh)
 	{
 		db_query dbq(dbh, "SELECT * FROM files where object = @offset;");
 		if (prev != 0)
@@ -84,20 +84,17 @@ namespace svs
 			// file x10 from scource -> delta will pure work -> save full
 			double highscore = std::min(1.0, pow(0.5, ((double)filesize / (double)ssz - 1) / 5.0));
 			std::bernoulli_distribution prob(deltascore * highscore * sqrt(cpuscore) * std::min(1.0, cpuscore * sqrt(3.0 * efficiency)));
-			raw_file = prob(rd);
+			raw_file = !prob(rd);
 			files_delta_cnt = cnt;
 			files_delta_size = sz;
 			files_source_size = ssz - sz;
 			if (!raw_file)
 			{
 				// read signature
-				OVERLAPPED ol;
-				ZeroMemory(&ol, sizeof(ol));
-				ol.Offset = static_cast<DWORD>(prev & 0xFFFFFFFF);
-				ol.OffsetHigh = static_cast<DWORD>((prev >> 32) & 0xFFFFFFFF);
+				SetFilePointer2(hdata, prev);
 				char header[24];
 				DWORD readen;
-				if (!ReadFile(hdata, header, 24, &readen, &ol))
+				if (!ReadFile(hdata, header, 24, &readen, NULL))
 					throw winerror();
 				int parflags = header[0];
 				if ((parflags & (int)fileflags::CONTAINS_SIGNATURE) == 0)
@@ -114,7 +111,7 @@ namespace svs
 					memcpy(&sigsize, header + 16, 4);
 					int k = sigsize / 40;
 					char* signaturestore = new char[sigsize];
-					if (!ReadFile(hdata, signaturestore, sigsize, &readen, &ol))
+					if (!ReadFile(hdata, signaturestore, sigsize, &readen, NULL))
 						throw winerror();
 					if (readen != sigsize)
 						throw ioerror(hdata, "error reading file signature; check repository integrity");
@@ -129,7 +126,7 @@ namespace svs
 					delete[] signaturestore;
 					for (auto it = signature.begin(); it != signature.end(); it++)
 					{
-						auto& values = it.value();
+						auto& values = it->second;
 						std::sort(values.begin(), values.end());
 					}
 					dbuf.reserve(DELTA_BUFFER_SIZE);
@@ -142,6 +139,7 @@ namespace svs
 				}
 			}
 		}
+		write_signature = !no_signature;
 		LARGE_INTEGER i1, i2;
 		i1.QuadPart = 0;
 		if (!SetFilePointerEx(hdata, i1, &i2, FILE_END))
@@ -160,34 +158,40 @@ namespace svs
 		char header[16];
 		// first 8 bytes will be written at commit...
 		memcpy(header + 8, &prev, 8);
-		olsign.Offset = i2.LowPart;
-		olsign.OffsetHigh = i2.HighPart;
 		DWORD written;
-		if (!WriteFile(hdata, header, 16, &written, &olsign))
+		if (!WriteFile(hdata, header, 16, &written, NULL))
 			throw winerror();
 		if (written != 16)
 			throw ioerror(hdata, "error writing file header; check free space on disk");
-		if (!no_signature)
+		if (write_signature)
 		{
 			int sbl = (int)(filesize / bsnt) * 40;
 			memcpy(header, &sbl, 4);
 			memcpy(header + 4, &bsnt, 4);
 			sigbuf.init(bsnt);
-			if (!WriteFile(hdata, header, 8, &written, &olsign))
+			nsstore = std::make_unique<char[]>(sbl);
+			nsstore_lst = 0;
+			if (!WriteFile(hdata, header, 8, &written, NULL))
 				throw winerror();
 			if (written != 8)
 				throw ioerror(hdata, "error writing signature header; check free space on disk");
 			// allocate place for signature since we know what space it takes
 			i1.QuadPart = postition + 16 + 8 + sbl;
-			if (!SetFilePointerEx(hdata, i1, &i2, FILE_BEGIN))
+			if (!SetFilePointerEx(hdata, i1, &data_begin, FILE_BEGIN))
 				throw winerror();
 			if (!SetEndOfFile(hdata))
+				throw winerror();
+		}
+		else
+		{
+			i1.QuadPart = 0;
+			if (!SetFilePointerEx(hdata, i1, &data_begin, FILE_CURRENT))
 				throw winerror();
 		}
 	}
 	void filesave::_process(const char* buf, int bufsz)
 	{
-		DWORD readen, writen;
+		DWORD writen;
 		if (use_zlib)
 		{
 			zs.avail_in = bufsz;
@@ -219,6 +223,7 @@ namespace svs
 			if (writen != bufsz)
 				throw ioerror(hfile, "error writing file data; check free space on disk");
 		}
+		files_delta_size += bufsz;
 	}
 	inline void filesave::_send_delta_command(int cmd)
 	{
@@ -233,7 +238,6 @@ namespace svs
 		{
 			_process(reinterpret_cast<char*>(&cmd), sizeof(cmd));
 		}
-		files_delta_size += 4;
 	}
 	void filesave::_flush_delta_buffer()
 	{
@@ -242,7 +246,6 @@ namespace svs
 			int cmd = -(int)dbuf.size();
 			_send_delta_command(cmd);
 			_process(dbuf.data(), (int)dbuf.size());
-			files_delta_size += dbuf.size();
 			dbuf.clear();
 		}
 	}
@@ -254,7 +257,7 @@ namespace svs
 	}
 	void filesave::_find_delta_hash(unsigned hsh)
 	{
-		auto it = signature.find(chash);
+		auto it = signature.find(hsh);
 		if (it != signature.end())
 		{
 			blake3_hasher bh;
@@ -265,7 +268,7 @@ namespace svs
 			});
 			filehash fh;
 			blake3_hasher_finalize(&bh, reinterpret_cast<uint8_t*>(&fh), sizeof(fh));
-			const std::vector<keyvalue<filehash, int>>& vars = it.value();
+			const std::vector<keyvalue<filehash, int>>& vars = it->second;
 			auto it2 = std::lower_bound(vars.begin(), vars.end(), keyvalue<filehash, int>{fh, 0});
 			if (it2 != vars.end() && it2->key == fh)
 			{
@@ -277,7 +280,6 @@ namespace svs
 	}
 	void filesave::process(const char* buf, int bufsz)
 	{
-		DWORD readen, writen;
 		if (!unwind)
 		{
 			// first loop through file
@@ -293,7 +295,7 @@ namespace svs
 					sigbuf.push(buf[i]);
 					if (sigbuf.full())
 					{
-						char sigentry[40];
+						char sigentry[40]{ 0 };
 						memcpy(sigentry, &shash, 4);
 						blake3_hasher sighash;
 						blake3_hasher_init(&sighash);
@@ -302,10 +304,8 @@ namespace svs
 							blake3_hasher_update(&sighash, buf, len);
 						});
 						blake3_hasher_finalize(&sighash, (uint8_t*)(sigentry + 4), 32);
-						if (!WriteFile(hfile, sigentry, 40, &writen, &olsign))
-							throw winerror();
-						if (writen != 40)
-							throw ioerror(hfile, "error writing signature entry; check free space on disk");
+						memcpy(nsstore.get() + nsstore_lst, sigentry, sizeof(sigentry));
+						nsstore_lst += sizeof(sigentry);
 						shash = 0;
 					}
 				}
@@ -370,9 +370,7 @@ namespace svs
 			deflateInit(&zs, Z_BEST_COMPRESSION);
 		}
 		bytespassed = 0;
-		LARGE_INTEGER i1, i2;
-		i1.LowPart = olsign.Offset;
-		i1.HighPart = olsign.OffsetHigh;
+		LARGE_INTEGER i1 = data_begin, i2;
 		if (!SetFilePointerEx(hfile, i1, &i2, FILE_BEGIN))
 			throw winerror();
 		if (!SetEndOfFile(hfile))
@@ -382,12 +380,14 @@ namespace svs
 	{
 		if (bytespassed < filesize)
 			throw std::runtime_error("Not enough bytes recieved to file size");
-		SetEndOfFile(hfile);
+		if (!SetEndOfFile(hfile))
+			throw winerror();
 		if (use_zlib)
 			deflateEnd(&zs);
 		LARGE_INTEGER i1, i2;
 		i1.QuadPart = 0;
 		SetFilePointerEx(hfile, i1, &i2, FILE_CURRENT);
+		long long tarsize = i2.QuadPart;
 		long long objsize = i2.QuadPart - postition;
 		i1.QuadPart = postition;
 		SetFilePointerEx(hfile, i1, &i2, FILE_BEGIN);
@@ -404,6 +404,16 @@ namespace svs
 		DWORD writen;
 		if (!WriteFile(hfile, &header, 8, &writen, NULL))
 			throw winerror();
+		if (write_signature)
+		{
+			i1.QuadPart = 8 + 8;
+			if (!SetFilePointerEx(hfile, i1, &i2, FILE_CURRENT))
+				throw winerror();
+			if (!WriteFile(hfile, nsstore.get(), nsstore_lst, &writen, NULL))
+				throw winerror();
+			if (writen != nsstore_lst)
+				throw ioerror(hfile, "Error writing signature to data file");
+		}
 		FlushFileBuffers(hfile);
 		// main work finished!
 		if (raw_file)
@@ -415,6 +425,7 @@ namespace svs
 		filehash filehsh, ohsh;
 		blake3_hasher_finalize(&file_hash, reinterpret_cast<uint8_t*>(&filehsh), sizeof(filehsh));
 		// reread all our object ((
+		i1.QuadPart = postition;
 		SetFilePointerEx(hfile, i1, &i2, FILE_BEGIN);
 		blake3_hasher_init(&file_hash);
 		zsbuf = std::make_unique<char[]>(ZSTREAM_BUFFER_SIZE);
@@ -430,17 +441,17 @@ namespace svs
 			throw winerror();
 		blake3_hasher_finalize(&file_hash, reinterpret_cast<uint8_t*>(&ohsh), sizeof(ohsh));
 		db_query dbq(dbh, "INSERT INTO objects(offset, size, hash, type) VALUES (@offset, @size, @hash, @type);");
-		dbq.bind("offset", postition);
-		dbq.bind("size", objsize);
-		dbq.bind("type", flags);
-		dbq.bind("hash", &ohsh);
-		dbq.step();
+		dbq.bind("@offset", postition);
+		dbq.bind("@size", objsize);
+		dbq.bind("@type", flags);
+		dbq.bind("@hash", &ohsh);
+		dbq.run();
 		long long sid = sqlite3_last_insert_rowid(dbh->db);
 		dbq.setup("INSERT INTO files(id, object, file_size, file_hash, modified_date, updated_at, deltas_size, deltas_count, source_size, parent) VALUES (@id, @pos, @fs, @fh, @modd, @updd, @ds, @dc, @ss, @par);");
-		dbq.bind("id", sid);
-		dbq.bind("pos", postition);
-		dbq.bind("fs", filesize);
-		dbq.bind("fh", &filehsh);
+		dbq.bind("@id", sid);
+		dbq.bind("@pos", postition);
+		dbq.bind("@fs", filesize);
+		dbq.bind("@fh", &filehsh);
 		if (moddate == NULL)
 		{
 			FILETIME ft;
@@ -448,22 +459,33 @@ namespace svs
 			ULARGE_INTEGER uli;
 			uli.LowPart = ft.dwLowDateTime;
 			uli.HighPart = ft.dwHighDateTime;
-			dbq.bind("modd", uli.QuadPart);
+			dbq.bind("@modd", uli.QuadPart);
 		}
 		else
 		{
 			ULARGE_INTEGER uli;
 			uli.LowPart = moddate->dwLowDateTime;
 			uli.HighPart = moddate->dwHighDateTime;
-			dbq.bind("modd", uli.QuadPart);
+			dbq.bind("@modd", uli.QuadPart);
 		}
-		dbq.bind("updd", time(nullptr));
-		dbq.bind("par", files_pid);
-		dbq.bind("ss", files_source_size);
-		dbq.bind("ds", files_delta_size);
-		dbq.bind("dc", files_delta_cnt);
-		dbq.step();
+		dbq.bind("@updd", time(nullptr));
+		dbq.bind("@par", files_pid);
+		dbq.bind("@ss", files_source_size);
+		dbq.bind("@ds", files_delta_size);
+		dbq.bind("@dc", files_delta_cnt);
+		dbq.run();
+		dbq.setup("UPDATE config SET value = @value WHERE name = @name;");
+		dbq.bind("@name", "filesize");
+		dbq.bind("@value", tarsize);
+		dbq.run();
 		dbt.commit();
 		return postition;
+	}
+	void SetFilePointer2(HANDLE hFile, LONGLONG position)
+	{
+		LARGE_INTEGER i1, i2;
+		i1.QuadPart = position;
+		if (!SetFilePointerEx(hFile, i1, &i2, FILE_BEGIN))
+			throw winerror();
 	}
 }

@@ -38,6 +38,7 @@ namespace svs
 		db_handle dbh;
 		HANDLE hdata;
 		friend class VFS;
+		bool readonly;
 	public:
 		std::shared_mutex mtx;
 
@@ -50,7 +51,8 @@ namespace svs
 		/// <param name="datafile"></param>
 		/// <param name="localfile"></param>
 		/// <param name="diskchck"></param>
-		SVS(LPCWSTR dbfile, LPCWSTR datafile, LPCWSTR localfile, BOOL diskchck);
+		SVS(LPCWSTR dbfile, LPCWSTR datafile, LPCWSTR localfile, bool diskchck, bool readonly);
+		~SVS();
 
 		// RAW API
 		db_handle acquire_db();

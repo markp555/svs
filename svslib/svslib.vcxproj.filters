@@ -61,17 +61,17 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="blake3_avx2_x86-64_windows_msvc.asm">
+    <MASM Include="blake3_avx2_x86-64_windows_msvc.asm">
       <Filter>Source Files</Filter>
-    </None>
-    <None Include="blake3_avx512_x86-64_windows_msvc.asm">
+    </MASM>
+    <MASM Include="blake3_avx512_x86-64_windows_msvc.asm">
       <Filter>Source Files</Filter>
-    </None>
-    <None Include="blake3_sse2_x86-64_windows_msvc.asm">
+    </MASM>
+    <MASM Include="blake3_sse2_x86-64_windows_msvc.asm">
       <Filter>Source Files</Filter>
-    </None>
-    <None Include="blake3_sse41_x86-64_windows_msvc.asm">
+    </MASM>
+    <MASM Include="blake3_sse41_x86-64_windows_msvc.asm">
       <Filter>Source Files</Filter>
-    </None>
+    </MASM>
   </ItemGroup>
 </Project>

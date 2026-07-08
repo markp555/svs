@@ -63,7 +63,7 @@ namespace svs
 	using db_handle = std::shared_ptr<database>;
 
 	template <typename T>
-	concept sql_type = std::integral<T> || std::is_same_v<T, std::string> || std::is_same_v<T, std::wstring>;
+	concept sql_type = std::integral<T> || std::floating_point<T> || std::is_same_v<T, std::string> || std::is_same_v<T, std::wstring>;
 	template <typename T>
 	concept trivial_type = std::is_trivially_destructible_v<T> && std::is_trivially_copyable_v<T> && std::is_trivially_copy_assignable_v<T> && std::is_trivially_default_constructible_v<T>;
 	template <typename T>
@@ -109,9 +109,16 @@ namespace svs
 			int x = sqlite3_step(stmt);
 			if (x == SQLITE_DONE)
 				return false;
-			if (x != SQLITE_OK)
+			if (x != SQLITE_ROW)
 				throw sql_error(db, x);
 			return true;
+		}
+
+		void run()
+		{
+			if (step())
+				throw std::runtime_error("Commit should be used only in insert / update queries");
+			reset();
 		}
 
 		template <std::integral T>
@@ -120,7 +127,7 @@ namespace svs
 			int id = sqlite3_bind_parameter_index(stmt, param);
 			if constexpr (sizeof(x) <= sizeof(int))
 			{
-				if (int ok = sqlite3_bind_int(stmt, id, x))
+				if (int ok = sqlite3_bind_int(stmt, id, static_cast<int>(x)))
 					throw sql_error(db, ok);
 			}
 			else
@@ -141,6 +148,14 @@ namespace svs
 		void bind(const char* param, T* val)
 		{
 			bind(param, (const void*)val, (int)sizeof(T));
+		}
+
+		template <std::floating_point T>
+		void bind(const char* param, T val)
+		{
+			int id = sqlite3_bind_parameter_index(stmt, param);
+			if (int ok = sqlite3_bind_double(stmt, id, (double)val))
+				throw sql_error(db, ok);
 		}
 
 		void bind(const char* param, std::string_view sw)
@@ -205,6 +220,26 @@ namespace svs
 		{
 			prepare();
 			return std::wstring(reinterpret_cast<const wchar_t*>(sqlite3_column_text16(stmt, column_id(name))));
+		}
+
+		template <std::floating_point T>
+		T get(const char* name)
+		{
+			prepare();
+			return static_cast<T>(sqlite3_column_double(stmt, column_id(name)));
+		}
+
+		template <sql_type T>
+		T run_one()
+		{
+			if (!step())
+				throw std::runtime_error("[SQL] no data returned");
+			colnames.insert_or_assign("#", 0);
+			T retval = get<T>("#");
+			if (step())
+				throw std::runtime_error("[SQL] too many data returned");
+			reset();
+			return retval;
 		}
 	};
 

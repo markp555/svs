@@ -132,6 +132,8 @@ namespace svs
 		}
 	};
 
+	void SetFilePointer2(HANDLE hFile, LONGLONG position);
+
 	// file saving streaming algorithm
 	struct filesave
 	{
@@ -151,15 +153,16 @@ namespace svs
 		unsigned shash = 0;
 		long long bytespassed = 0;
 		int buffer_lst = 0;
-		bool raw_file = true, finished = false, no_signature = true, use_zlib = false;
+		bool raw_file = true, finished = false, no_signature = true, use_zlib = false, write_signature = false;
 		z_stream zs;
 		int flags = 0;
 		long long files_delta_cnt, files_delta_size, files_source_size, files_pid = 0;
 		blake3_hasher file_hash;
 		bool unwind = false;
-		OVERLAPPED olsign;
-		std::unique_ptr<char[]> zsbuf;
+		LARGE_INTEGER data_begin;
+		std::unique_ptr<char[]> zsbuf, nsstore;
 		std::vector<char> dbuf;
+		unsigned nsstore_lst = 0;
 
 		constexpr static inline unsigned K = 239;
 		constexpr static inline unsigned THRESHOLD_ZLIB = 220;
@@ -182,7 +185,7 @@ namespace svs
 		// internal function. writes directly to MAIN.DAT
 		void _process(const char* buf, int bufsz);
 
-		inline void _send_delta_command(int cmd);
+		void _send_delta_command(int cmd);
 
 		void _flush_delta_buffer();
 		void _push_delta_buffer(char ch);

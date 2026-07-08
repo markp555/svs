@@ -54,6 +54,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
   </ImportGroup>
   <ImportGroup Label="Shared">
   </ImportGroup>
@@ -173,12 +174,21 @@
     <ClCompile Include="svslib.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="blake3_avx2_x86-64_windows_msvc.asm" />
-    <None Include="blake3_avx512_x86-64_windows_msvc.asm" />
-    <None Include="blake3_sse2_x86-64_windows_msvc.asm" />
-    <None Include="blake3_sse41_x86-64_windows_msvc.asm" />
+    <MASM Include="blake3_avx2_x86-64_windows_msvc.asm">
+      <FileType>Document</FileType>
+    </MASM>
+    <MASM Include="blake3_avx512_x86-64_windows_msvc.asm">
+      <FileType>Document</FileType>
+    </MASM>
+    <MASM Include="blake3_sse2_x86-64_windows_msvc.asm">
+      <FileType>Document</FileType>
+    </MASM>
+    <MASM Include="blake3_sse41_x86-64_windows_msvc.asm">
+      <FileType>Document</FileType>
+    </MASM>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
   </ImportGroup>
 </Project>
