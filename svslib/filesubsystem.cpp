@@ -440,7 +440,7 @@ namespace svs
 			flags |= (int)fileflags::CONTENT_DELTA;
 		if (use_zlib)
 			flags |= (int)fileflags::CONTENT_ZLIB;
-		if (!no_signature)
+		if (write_signature)
 			flags |= (int)fileflags::CONTAINS_SIGNATURE;
 		if (use_zlib && !raw_file)
 			flags |= (int)fileflags::CONTENT_DELTA_ENCODED;
@@ -531,5 +531,12 @@ namespace svs
 		i1.QuadPart = position;
 		if (!SetFilePointerEx(hFile, i1, &i2, FILE_BEGIN))
 			throw winerror();
+	}
+	bool datacheck::run()
+	{
+		if (!objsel.step())
+			return false;
+
+		return true;
 	}
 }

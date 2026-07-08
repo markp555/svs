@@ -15,7 +15,8 @@ void fss_test()
 	}
 	file3 = "Hello, " + file2 + "!!!";
 	char end = '\0';
-	long long a, b, c, d;
+	long long a, b, c, d, e;
+	std::unique_ptr<char[]> largess;
 	{
 		svs::filesave fsv(vs.acquire_data(), vs.acquire_db(), file1.size() + 1, 0);
 		fsv.process(file1.c_str(), file1.size());
@@ -27,6 +28,7 @@ void fss_test()
 		fsv2.process(file2.c_str(), file2.size());
 		fsv2.process(&end, 1);
 		b = fsv2.commit(NULL);
+		largess.swap(fsv2.nsstore);
 	}
 	{
 		svs::filesave fsv3(vs.acquire_data(), vs.acquire_db(), file3.size() + 1, b);
@@ -34,12 +36,19 @@ void fss_test()
 		fsv3.process(&end, 1);
 		c = fsv3.commit(NULL);
 	}
+	{
+		svs::filesave fsv3(vs.acquire_data(), vs.acquire_db(), file3.size() + 1, b, largess.get());
+		fsv3.process(file3.c_str(), file3.size());
+		fsv3.process(&end, 1);
+		d = fsv3.commit(NULL);
+	}
 	file1 += "?";
 	{
 		svs::filesave fsv(vs.acquire_data(), vs.acquire_db(), file1.size() + 1, 0);
 		fsv.process(file1.c_str(), file1.size());
 		fsv.process(&end, 1);
-		d = fsv.commit(NULL);
+		e = fsv.commit(NULL);
 	}
-	printf("%lld %lld %lld %lld\n", a, b, c, d);
+	printf("%lld %lld %lld %lld %lld\n", a, b, c, d, e);
+	svs::SVS svs2(L"a.db", L"a.dat", NULL, true, true);
 }

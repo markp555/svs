@@ -222,18 +222,14 @@ namespace svs
 	{
 		HANDLE hfile;
 		db_query objsel;
+		std::unique_lock<std::shared_mutex> ulk;
 
-		datacheck(HANDLE hdata, db_handle dbh) : hfile(hdata), objsel(dbh, "SELECT * FROM objects;")
+		datacheck(HANDLE hdata, db_handle dbh) : hfile(hdata), objsel(dbh, "SELECT * FROM objects;"), ulk(dbh->lck)
 		{
 			objsel.reset();
+			SetFilePointer2(hdata, 0);
 		}
 
-		bool run()
-		{
-			if (!objsel.step())
-				return false;
-
-			return true;
-		}
+		bool run();
 	};
 }
