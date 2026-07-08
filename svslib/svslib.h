@@ -27,11 +27,33 @@
 
 namespace svs
 {
+	class VFS
+	{
+
+	};
+
 	class SVS
 	{
+	private:
+		db_handle dbh;
+		HANDLE hdata;
+		friend class VFS;
 	public:
 		std::shared_mutex mtx;
 
+		/// <summary>
+		/// Main class for manipulations with SVS repositories
+		/// Used to create / view / write to SVS repositories
+		/// If files on given paths not exist, creates this files
+		/// </summary>
+		/// <param name="dbfile"></param>
+		/// <param name="datafile"></param>
+		/// <param name="localfile"></param>
+		/// <param name="diskchck"></param>
+		SVS(LPCWSTR dbfile, LPCWSTR datafile, LPCWSTR localfile, BOOL diskchck);
 
+		// RAW API
+		db_handle acquire_db();
+		HANDLE acquire_data();
 	};
 }
