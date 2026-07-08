@@ -241,6 +241,13 @@ namespace svs
 			reset();
 			return retval;
 		}
+
+		template <sql_type T>
+		T run_one_inline(const char* name)
+		{
+			sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+			return run_one<T>();
+		}
 	};
 
 	struct db_transaction

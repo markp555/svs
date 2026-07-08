@@ -32,8 +32,9 @@ namespace svs
 	/// <param name="filesize">New file size. Required</param>
 	/// <param name="prev">Previous file offset. NULL if it is new file</param>
 
-	filesave::filesave(HANDLE hdata, db_handle dbh, long long filesize, long long prev) : hfile(hdata), filesize(filesize), lck(dbh->lck), parent(prev), dbt(dbh), dbh(dbh)
+	filesave::filesave(HANDLE hdata, db_handle dbh, long long filesize, long long prev, char* psign) : hfile(hdata), filesize(filesize), lck(dbh->lck), parent(prev), dbt(dbh), dbh(dbh)
 	{
+		db_query config(dbh, "SELECT value FROM config WHERE name = ?;");
 		db_query dbq(dbh, "SELECT * FROM files where object = @offset;");
 		if (prev != 0)
 		{
@@ -45,10 +46,19 @@ namespace svs
 			// dbq.reset();
 		}
 		// size of one single signature block
-		bsnt = lround(sqrt((double)filesize * 11.0 + 2.0)) + 1;
+		bsnt = lround(sqrt((double)filesize * 4.0 + 2.0)) + 1;
 		raw_file = (bsnt > filesize) || (filesize <= THRESHOLD_DELTA) || (prev == NULL);
 		no_signature = (bsnt > filesize) || (filesize <= THRESHOLD_DELTA);
 		use_zlib = (filesize > THRESHOLD_ZLIB);
+		if (!config.run_one_inline<bool>("zlib"))
+			use_zlib = false;
+		if (config.run_one_inline<bool>("raw_content"))
+			raw_file = true, no_signature = true;
+		write_signature = !no_signature && config.run_one_inline<bool>("embed_s");
+		if (write_signature && psign != NULL && config.run_one_inline<bool>("local"))
+			write_signature = false;
+		if (write_signature)
+			bsnt = lround(sqrt((double)filesize * 12.0 + 2.0)) + 1;
 		if (!raw_file)
 		{
 			/*dbq.bind("@offset", prev);
@@ -88,7 +98,37 @@ namespace svs
 			files_delta_cnt = cnt;
 			files_delta_size = sz;
 			files_source_size = ssz - sz;
-			if (!raw_file)
+			if (raw_file && config.run_one_inline<bool>("archive"))
+				raw_file = false;
+			if (!raw_file && psign != NULL)
+			{
+				int sigsize;
+				memcpy(&sigsize, psign, 4);
+				memcpy(&blocksize, psign + 4, 4);
+				char* signaturestore = psign + 8;
+				int k = sigsize / 40;
+				for (int i = 0; i < k; i++)
+				{
+					filehash fh;
+					unsigned ph;
+					memcpy(&ph, signaturestore + 40 * i, 4);
+					memcpy(&fh, signaturestore + 40 * i + 4, 32);
+					signature[ph].emplace_back(fh, i);
+				}
+				for (auto it = signature.begin(); it != signature.end(); it++)
+				{
+					auto& values = it.value();
+					std::sort(values.begin(), values.end());
+				}
+				dbuf.reserve(DELTA_BUFFER_SIZE);
+				dbuffer.init(blocksize);
+				dhashes.init(blocksize);
+				chash = 0;
+				dhashmul = 1;
+				for (int i = blocksize; i > 0; i--)
+					dhashmul *= K;
+			}
+			else if (!raw_file)
 			{
 				// read signature
 				SetFilePointer2(hdata, prev);
@@ -126,7 +166,7 @@ namespace svs
 					delete[] signaturestore;
 					for (auto it = signature.begin(); it != signature.end(); it++)
 					{
-						auto& values = it->second;
+						auto& values = it.value();
 						std::sort(values.begin(), values.end());
 					}
 					dbuf.reserve(DELTA_BUFFER_SIZE);
@@ -139,7 +179,6 @@ namespace svs
 				}
 			}
 		}
-		write_signature = !no_signature;
 		LARGE_INTEGER i1, i2;
 		i1.QuadPart = 0;
 		if (!SetFilePointerEx(hdata, i1, &i2, FILE_END))
@@ -163,18 +202,17 @@ namespace svs
 			throw winerror();
 		if (written != 16)
 			throw ioerror(hdata, "error writing file header; check free space on disk");
+		int sbl = (int)(filesize / bsnt) * 40;
+		if (!no_signature)
+		{
+			sigbuf.init(bsnt);
+			nsstore = std::make_unique<char[]>(sbl + 8);
+			nsstore_lst = 8;
+			memcpy(nsstore.get(), &sbl, 4);
+			memcpy(nsstore.get() + 4, &bsnt, 4);
+		}
 		if (write_signature)
 		{
-			int sbl = (int)(filesize / bsnt) * 40;
-			memcpy(header, &sbl, 4);
-			memcpy(header + 4, &bsnt, 4);
-			sigbuf.init(bsnt);
-			nsstore = std::make_unique<char[]>(sbl);
-			nsstore_lst = 0;
-			if (!WriteFile(hdata, header, 8, &written, NULL))
-				throw winerror();
-			if (written != 8)
-				throw ioerror(hdata, "error writing signature header; check free space on disk");
 			// allocate place for signature since we know what space it takes
 			i1.QuadPart = postition + 16 + 8 + sbl;
 			if (!SetFilePointerEx(hdata, i1, &data_begin, FILE_BEGIN))
@@ -268,7 +306,7 @@ namespace svs
 			});
 			filehash fh;
 			blake3_hasher_finalize(&bh, reinterpret_cast<uint8_t*>(&fh), sizeof(fh));
-			const std::vector<keyvalue<filehash, int>>& vars = it->second;
+			const std::vector<keyvalue<filehash, int>>& vars = it.value();
 			auto it2 = std::lower_bound(vars.begin(), vars.end(), keyvalue<filehash, int>{fh, 0});
 			if (it2 != vars.end() && it2->key == fh)
 			{
@@ -406,7 +444,7 @@ namespace svs
 			throw winerror();
 		if (write_signature)
 		{
-			i1.QuadPart = 8 + 8;
+			i1.QuadPart = 8;
 			if (!SetFilePointerEx(hfile, i1, &i2, FILE_CURRENT))
 				throw winerror();
 			if (!WriteFile(hfile, nsstore.get(), nsstore_lst, &writen, NULL))

@@ -94,6 +94,7 @@ namespace svs
 			{
 				dbh->exec("INSERT INTO config(name, value) VALUES ('filesize', 0);");
 			}
+			// !!! file names codepage
 			dbq.bind("@name", "codepage");
 			dbq.bind("@value", GetACP());
 			dbq.run();
@@ -106,20 +107,40 @@ namespace svs
 			dbq.bind("@name", "zlib");
 			dbq.bind("@value", true);
 			dbq.run();
+			// enables emedding signature in files
 			dbq.bind("@name", "embed_s");
 			dbq.bind("@value", true);
 			dbq.run();
+			// coefficient to random algorithm
 			dbq.bind("@name", "delta_prob");
 			dbq.bind("@value", 1.0);
 			dbq.run();
+			dbq.bind("@name", "delta_coef");
+			dbq.bind("@value", 1.0);
+			dbq.run();
+			// maximum compression mode with archive&local&local_inline
+			// makes always use delta when signature avaiable
+			// makes always use treep instead of B+ tree
 			dbq.bind("@name", "archive");
 			dbq.bind("@value", false);
 			dbq.run();
+			// disables signature saving if previous presented by outer world
+			// not efficient with uploading to remote server unless local_inline is set
+			dbq.bind("@name", "local");
+			dbq.bind("@value", true);
+			dbq.run();
+			// if no signature provided, calculates it on the fly
 			dbq.bind("@name", "local_inline");
 			dbq.bind("@value", false);
 			dbq.run();
-			dbq.bind("@name", "local");
-			dbq.bind("@value", true);
+			// disables delta & signature algorithm
+			// stores raw files or zlib-ed
+			dbq.bind("@name", "raw_content");
+			dbq.bind("@value", false);
+			dbq.run();
+			// disclaimer
+			dbq.bind("@name", "warning");
+			dbq.bind("@value", "EXPERIEMENTAL FEATURES AHEAD!");
 			dbq.run();
 		}
 		else if (datafile != NULL)

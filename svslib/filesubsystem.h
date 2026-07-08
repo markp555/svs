@@ -180,7 +180,7 @@ namespace svs
 		/// <param name="dbh">handle to sqlite3 database MAIN.DB</param>
 		/// <param name="filesize">New file size. Required</param>
 		/// <param name="prev">Previous file offset. NULL if it is new file</param>
-		filesave(HANDLE hdata, db_handle dbh, long long filesize, long long prev);
+		filesave(HANDLE hdata, db_handle dbh, long long filesize, long long prev, char* psign = NULL);
 
 		// internal function. writes directly to MAIN.DAT
 		void _process(const char* buf, int bufsz);
