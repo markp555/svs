@@ -154,7 +154,7 @@ namespace svs
 		bool raw_file = true, finished = false, no_signature = true, use_zlib = false;
 		z_stream zs;
 		int flags = 0;
-		long long files_delta_cnt, files_delta_size, files_source_size;
+		long long files_delta_cnt, files_delta_size, files_source_size, files_pid = 0;
 		blake3_hasher file_hash;
 		bool unwind = false;
 		OVERLAPPED olsign;
@@ -197,7 +197,7 @@ namespace svs
 
 		void restart();
 
-		long long commit();
+		long long commit(const FILETIME* moddate);
 	};
 
 	// file loading streaming algorithm

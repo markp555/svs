@@ -34,6 +34,16 @@ namespace svs
 
 	inline filesave::filesave(HANDLE hdata, db_handle dbh, long long filesize, long long prev) : hfile(hdata), filesize(filesize), lck(dbh->lck), parent(prev), dbt(dbh)
 	{
+		db_query dbq(dbh, "SELECT * FROM files where object = @offset;");
+		if (prev != 0)
+		{
+			dbq.bind("@offset", prev);
+			if (!dbq.step())
+				throw std::runtime_error("invalid parent file; check repository integrity");
+			files_pid = dbq.get<long long>("id");
+			// prev = dbq.get<long long>("last_signature");
+			// dbq.reset();
+		}
 		// size of one single signature block
 		bsnt = lround(sqrt((double)filesize * 11.0 + 2.0)) + 1;
 		raw_file = (bsnt > filesize) || (filesize <= THRESHOLD_DELTA) || (prev == NULL);
@@ -41,10 +51,9 @@ namespace svs
 		use_zlib = (filesize > THRESHOLD_ZLIB);
 		if (!raw_file)
 		{
-			db_query dbq(dbh, "SELECT * FROM files where object = @offset;");
-			dbq.bind("@offset", prev);
+			/*dbq.bind("@offset", prev);
 			if (!dbq.step())
-				throw std::runtime_error("invalid parent file; check repository integrity");
+				throw std::runtime_error("invalid parent file; check repository integrity");*/
 			// imagine such case: file has 499 deltas and then developers started making fork branches from it
 			// in this case all this stuff will just copy files without deltas
 			// to improve it there is two ways
@@ -224,6 +233,7 @@ namespace svs
 		{
 			_process(reinterpret_cast<char*>(&cmd), sizeof(cmd));
 		}
+		files_delta_size += 4;
 	}
 	void filesave::_flush_delta_buffer()
 	{
@@ -232,6 +242,7 @@ namespace svs
 			int cmd = -(int)dbuf.size();
 			_send_delta_command(cmd);
 			_process(dbuf.data(), (int)dbuf.size());
+			files_delta_size += dbuf.size();
 			dbuf.clear();
 		}
 	}
@@ -258,6 +269,7 @@ namespace svs
 			auto it2 = std::lower_bound(vars.begin(), vars.end(), keyvalue<filehash, int>{fh, 0});
 			if (it2 != vars.end() && it2->key == fh)
 			{
+				_flush_delta_buffer();
 				_send_delta_command(it2->value);
 				dcurbytes = 0, chash = 0;
 			}
@@ -366,7 +378,7 @@ namespace svs
 		if (!SetEndOfFile(hfile))
 			throw winerror();
 	}
-	long long filesave::commit()
+	long long filesave::commit(const FILETIME* moddate)
 	{
 		if (bytespassed < filesize)
 			throw std::runtime_error("Not enough bytes recieved to file size");
@@ -376,17 +388,81 @@ namespace svs
 		LARGE_INTEGER i1, i2;
 		i1.QuadPart = 0;
 		SetFilePointerEx(hfile, i1, &i2, FILE_CURRENT);
+		long long objsize = i2.QuadPart - postition;
 		i1.QuadPart = postition;
 		SetFilePointerEx(hfile, i1, &i2, FILE_BEGIN);
-		char header[8];
+		int flags = 0;
+		if (!raw_file)
+			flags |= (int)fileflags::CONTENT_DELTA;
+		if (use_zlib)
+			flags |= (int)fileflags::CONTENT_ZLIB;
+		if (!no_signature)
+			flags |= (int)fileflags::CONTAINS_SIGNATURE;
+		if (use_zlib && !raw_file)
+			flags |= (int)fileflags::CONTENT_DELTA_ENCODED;
+		long long header = flags + (objsize << 8);
 		DWORD writen;
-		if (!WriteFile(hfile, header, 8, &writen, NULL))
+		if (!WriteFile(hfile, &header, 8, &writen, NULL))
 			throw winerror();
 		FlushFileBuffers(hfile);
 		// main work finished!
-		filehash filehsh;
+		if (raw_file)
+		{
+			files_delta_cnt = 0;
+			files_delta_size = 0;
+			files_source_size = filesize;
+		}
+		filehash filehsh, ohsh;
 		blake3_hasher_finalize(&file_hash, reinterpret_cast<uint8_t*>(&filehsh), sizeof(filehsh));
-		db_query dbq1(dbh, "INSERT INTO objects(offset, size, hash, type) VALUES");
+		// reread all our object ((
+		SetFilePointerEx(hfile, i1, &i2, FILE_BEGIN);
+		blake3_hasher_init(&file_hash);
+		zsbuf = std::make_unique<char[]>(ZSTREAM_BUFFER_SIZE);
+		BOOL ok;
+		DWORD readen;
+		while (ok = ReadFile(hfile, zsbuf.get(), ZSTREAM_BUFFER_SIZE, &readen, NULL))
+		{
+			blake3_hasher_update(&file_hash, zsbuf.get(), readen);
+			if (readen == 0)
+				break;
+		}
+		if (ok == FALSE)
+			throw winerror();
+		blake3_hasher_finalize(&file_hash, reinterpret_cast<uint8_t*>(&ohsh), sizeof(ohsh));
+		db_query dbq(dbh, "INSERT INTO objects(offset, size, hash, type) VALUES (@offset, @size, @hash, @type);");
+		dbq.bind("offset", postition);
+		dbq.bind("size", objsize);
+		dbq.bind("type", flags);
+		dbq.bind("hash", &ohsh);
+		dbq.step();
+		long long sid = sqlite3_last_insert_rowid(dbh->db);
+		dbq.setup("INSERT INTO files(id, object, file_size, file_hash, modified_date, updated_at, deltas_size, deltas_count, source_size, parent) VALUES (@id, @pos, @fs, @fh, @modd, @updd, @ds, @dc, @ss, @par);");
+		dbq.bind("id", sid);
+		dbq.bind("pos", postition);
+		dbq.bind("fs", filesize);
+		dbq.bind("fh", &filehsh);
+		if (moddate == NULL)
+		{
+			FILETIME ft;
+			GetSystemTimeAsFileTime(&ft);
+			ULARGE_INTEGER uli;
+			uli.LowPart = ft.dwLowDateTime;
+			uli.HighPart = ft.dwHighDateTime;
+			dbq.bind("modd", uli.QuadPart);
+		}
+		else
+		{
+			ULARGE_INTEGER uli;
+			uli.LowPart = moddate->dwLowDateTime;
+			uli.HighPart = moddate->dwHighDateTime;
+			dbq.bind("modd", uli.QuadPart);
+		}
+		dbq.bind("updd", time(nullptr));
+		dbq.bind("par", files_pid);
+		dbq.bind("ss", files_source_size);
+		dbq.bind("ds", files_delta_size);
+		dbq.bind("dc", files_delta_cnt);
+		dbq.step();
 		dbt.commit();
 		return postition;
 	}

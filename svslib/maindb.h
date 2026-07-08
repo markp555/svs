@@ -64,6 +64,12 @@ namespace svs
 
 	template <typename T>
 	concept sql_type = std::integral<T> || std::is_same_v<T, std::string> || std::is_same_v<T, std::wstring>;
+	template <typename T>
+	concept trivial_type = std::is_trivially_destructible_v<T> && std::is_trivially_copyable_v<T> && std::is_trivially_copy_assignable_v<T> && std::is_trivially_default_constructible_v<T>;
+	template <typename T>
+	concept string_pointer = std::is_same_v<std::remove_const_t<T>, char*> || std::is_same_v<std::remove_const_t<T>, wchar_t*>;
+	template <typename T>
+	concept sql_blob_type = (trivial_type<T> && !string_pointer<T>);
 
 	struct db_query
 	{
@@ -84,6 +90,8 @@ namespace svs
 
 		void setup(const char* sql)
 		{
+			if (stmt != nullptr)
+				sqlite3_finalize(stmt);
 			if (int x = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr))
 				throw sql_error(db, x);
 			colnames.clear();
@@ -120,6 +128,19 @@ namespace svs
 				if (int ok = sqlite3_bind_int64(stmt, id, x))
 					throw sql_error(db, ok);
 			}
+		}
+
+		void bind(const char* param, const void* dat, int n)
+		{
+			int id = sqlite3_bind_parameter_index(stmt, param);
+			if (int ok = sqlite3_bind_blob(stmt, id, dat, n, SQLITE_TRANSIENT))
+				throw sql_error(db, ok);
+		}
+
+		template <sql_blob_type T>
+		void bind(const char* param, T* val)
+		{
+			bind(param, (const void*)val, (int)sizeof(T));
 		}
 
 		void bind(const char* param, std::string_view sw)
