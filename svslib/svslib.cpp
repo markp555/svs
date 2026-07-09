@@ -74,11 +74,14 @@ namespace svs
 			dbh->exec("CREATE INDEX idx_comments_topic ON comments(topic, timestamp);");
 			dbh->exec("CREATE INDEX idx_comments_author ON comments(author, timestamp);");
 			dbh->exec("CREATE INDEX idx_revisions_by_commit ON revisions(topic, result);");
+			dbh->exec("CREATE INDEX idx_files_hash ON files(file_hash);");
 			dbt.commit();
 			db_query dbq(dbh, "INSERT INTO config(name, value) VALUES (@name, @value);");
 			if (datafile != nullptr)
 			{
 				hdata = CreateFileW(datafile, readonly ? GENERIC_READ : (GENERIC_READ | GENERIC_WRITE), FILE_SHARE_READ, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL);
+				if (hdata == INVALID_HANDLE_VALUE)
+					throw winerror();
 				char header[4] = "SVS";
 				DWORD writen;
 				if (!WriteFile(hdata, header, 4, &writen, NULL))
@@ -146,6 +149,8 @@ namespace svs
 		else if (datafile != NULL)
 		{
 			hdata = CreateFileW(datafile, readonly ? GENERIC_READ : (GENERIC_READ | GENERIC_WRITE), FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL);
+			if (hdata == INVALID_HANDLE_VALUE)
+				throw winerror();
 			if (diskchck)
 			{
 				db_query dq(dbh, "SELECT COUNT(*) AS c FROM objects;");
@@ -153,11 +158,11 @@ namespace svs
 				datacheck dch(hdata, dbh);
 				long long oc = 0;
 				clock_t clck = 0;
-				while (dch.run())
+				while (readonly ? dch.run_stdout() : dch.run_throw())
 				{
 					if (clck != clock())
 					{
-						printf("\rChecking repository integrity... (%lld/%lld)", oc, odc);
+						printf("Checking repository integrity... (%lld/%lld)\r", oc, odc);
 						clck = clock();
 					}
 					oc++;

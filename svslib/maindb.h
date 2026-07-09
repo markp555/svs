@@ -26,6 +26,8 @@
 #include <map>
 #include <memory>
 #include <shared_mutex>
+#include <bit>
+#include <vector>
 
 namespace svs
 {
@@ -227,6 +229,44 @@ namespace svs
 		{
 			prepare();
 			return static_cast<T>(sqlite3_column_double(stmt, column_id(name)));
+		}
+
+		std::unique_ptr<char[]> get_blob(const char* name, int* blob_size = NULL)
+		{
+			prepare();
+			int col = column_id(name);
+			int sz = sqlite3_column_bytes(stmt, col);
+			if (blob_size != NULL)
+				*blob_size = sz;
+			std::unique_ptr<char[]> ret = std::make_unique<char[]>(sz);
+			const void* dat = sqlite3_column_blob(stmt, col);
+			if (dat == nullptr)
+				return std::unique_ptr<char[]>{};
+			memcpy(ret.get(), dat, sz);
+			return ret;
+		}
+
+		template <sql_blob_type T>
+		void get(const char* name, T* out)
+		{
+			prepare();
+			int col = column_id(name);
+			if (sqlite3_column_bytes(stmt, col) != sizeof(T))
+				throw std::runtime_error("[SQL] blob size mismatch");
+			memcpy(static_cast<void*>(out), sqlite3_column_blob(stmt, col), sizeof(T));
+		}
+
+		template <sql_blob_type T>
+		std::vector<T> get_array(const char* name)
+		{
+			prepare();
+			int col = column_id(name);
+			int sz = sqlite3_column_bytes(stmt, col);
+			if (sz % sizeof(T) != 0)
+				throw std::runtime_error("[SQL] blob size mismatch");
+			std::vector<T> ret(sz / sizeof(T));
+			memcpy(static_cast<void*>(ret.data()), sqlite3_column_blob(stmt, col), ret.size() * sizeof(T));
+			return ret;
 		}
 
 		template <sql_type T>

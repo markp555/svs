@@ -227,9 +227,19 @@ namespace svs
 		datacheck(HANDLE hdata, db_handle dbh) : hfile(hdata), objsel(dbh, "SELECT * FROM objects;"), ulk(dbh->lck)
 		{
 			objsel.reset();
-			SetFilePointer2(hdata, 0);
+			SetFilePointer2(hdata, 4);
 		}
 
-		bool run();
+		bool run(void (*handler)(const char*));
+
+		bool run_stdout()
+		{
+			return run([](const char* s) {puts(s); });
+		}
+
+		bool run_throw()
+		{
+			return run([](const char* s) {throw std::runtime_error(s); });
+		}
 	};
 }

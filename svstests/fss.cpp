@@ -50,5 +50,10 @@ void fss_test()
 		e = fsv.commit(NULL);
 	}
 	printf("%lld %lld %lld %lld %lld\n", a, b, c, d, e);
+}
+
+void fss_test_2()
+{
 	svs::SVS svs2(L"a.db", L"a.dat", NULL, true, true);
+
 }

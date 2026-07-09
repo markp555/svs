@@ -8,6 +8,7 @@
 using std::cout;
 
 extern void fss_test();
+extern void fss_test_2();
 
 template <typename T>
 constexpr std::string_view get_type_name() {
@@ -72,7 +73,8 @@ void run_test(T&& f, const char* testname)
 
 int main()
 {
-    run_test(fss_test, "file subsystem test");
+    // run_test(fss_test, "file subsystem test");
+    run_test(fss_test_2, "data checking test");
 }
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu

@@ -532,11 +532,77 @@ namespace svs
 		if (!SetFilePointerEx(hFile, i1, &i2, FILE_BEGIN))
 			throw winerror();
 	}
-	bool datacheck::run()
+	bool datacheck::run(void (*handler)(const char*))
 	{
 		if (!objsel.step())
 			return false;
-
+		LARGE_INTEGER i1, i2;
+		i1.QuadPart = 0;
+		SetFilePointerEx(hfile, i1, &i2, FILE_CURRENT);
+		long long x = objsel.get<long long>("offset");
+		if (x != i2.QuadPart)
+		{
+			char msg[256];
+			sprintf_s(msg, "[ERROR] MAIN.DB corrupted: missing object / unused space at %lld in MAIN.DAT: next database object at %lld .", i2.QuadPart, x);
+			handler(msg);
+			i1.QuadPart = x;
+			SetFilePointerEx(hfile, i1, &i2, FILE_BEGIN);
+		}
+		char header[8];
+		DWORD readen;
+		BOOL ok = ReadFile(hfile, header, 8, &readen, NULL);
+		if (!ok || readen != 8)
+		{
+			char msg[256];
+			sprintf_s(msg, "[ERROR] MAIN.DAT read error at %lld .", i2.QuadPart);
+			handler(msg);
+		}
+		if (header[0] != objsel.get<short>("type"))
+		{
+			char msg[256];
+			sprintf_s(msg, "[ERROR] MAIN.DAT corrupted: invalid object type at %lld (expected %d found %d) .", i2.QuadPart, (int)header[0], objsel.get<int>("type"));
+			handler(msg);
+		}
+		long long expected_size = objsel.get<long long>("size");
+		long long real_size = 0;
+		memcpy(&real_size, header + 1, 7);
+		if (real_size != expected_size)
+		{
+			char msg[256];
+			sprintf_s(msg, "[ERROR] MAIN.DAT corrupted: invalid object size at %lld (expected %lld found %lld) .", i2.QuadPart, expected_size, real_size);
+			handler(msg);
+		}
+		SetFilePointerEx(hfile, i2, &i1, FILE_BEGIN);
+		const int K = 1024 * 1024;
+		std::unique_ptr<char[]> buf = std::make_unique<char[]>(K);
+		blake3_hasher bh;
+		blake3_hasher_init(&bh);
+		while (expected_size > 0)
+		{
+			DWORD need = (expected_size < K ? expected_size : K);
+			ok = ReadFile(hfile, buf.get(), need, &readen, NULL);
+			if (!ok || readen != need)
+			{
+				i1.QuadPart = 0;
+				SetFilePointerEx(hfile, i1, &i2, FILE_CURRENT);
+				char msg[256];
+				sprintf_s(msg, "[ERROR] MAIN.DAT read error at %lld .", i2.QuadPart);
+				handler(msg);
+				break;
+			}
+			expected_size -= readen;
+			blake3_hasher_update(&bh, buf.get(), readen);
+		}
+		filehash fh;
+		blake3_hasher_finalize(&bh, reinterpret_cast<uint8_t*>(&fh), sizeof(fh));
+		filehash fh2;
+		objsel.get("hash", &fh2);
+		if (fh != fh2)
+		{
+			char msg[256];
+			sprintf_s(msg, "[ERROR] MAIN.DAT corrupted: hash mismatch in object at %lld  .", i2.QuadPart);
+			handler(msg);
+		}
 		return true;
 	}
 }
